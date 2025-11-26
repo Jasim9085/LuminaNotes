@@ -2,6 +2,7 @@ package com.lumina.notes;
 
 import android.app.Activity;
 import android.Manifest;
+import android.content.pm.PackageManager;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
