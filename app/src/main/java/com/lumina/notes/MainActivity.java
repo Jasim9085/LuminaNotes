@@ -17,7 +17,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             Window window = getWindow();
             window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-            window.setStatusBarColor(Color.parseColor("#050511"));
+            window.setStatusBarColor(Color.parseColor("#020617"));
             View decorView = window.getDecorView();
             int flags = decorView.getSystemUiVisibility();
             flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR; 
