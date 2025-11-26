@@ -6,6 +6,7 @@ import android.content.pm.PackageManager;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build; // Added Import
 import android.os.Bundle;
 import android.view.View;
 import android.view.Window;
@@ -50,12 +51,33 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
             e.printStackTrace();
         }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, 
-                new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 
-                PERMISSION_REQUEST_CODE);
+
+        // --- PERMISSION REQUEST (Updated) ---
+        // We request Location (for existing features) and Storage (to fix EACCES error)
+        // Note: WRITE_EXTERNAL_STORAGE is critical for Android 9 and below.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED || 
+                ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
+                    != PackageManager.PERMISSION_GRANTED) {
+                
+                ActivityCompat.requestPermissions(this, 
+                    new String[]{
+                        Manifest.permission.ACCESS_FINE_LOCATION, 
+                        Manifest.permission.WRITE_EXTERNAL_STORAGE 
+                    }, 
+                    PERMISSION_REQUEST_CODE);
+            }
+        } else {
+            // For Android 10+, usually MediaStore handles files, but we keep Location
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, 
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 
+                    PERMISSION_REQUEST_CODE);
+            }
         }
+
         // --- WEBVIEW SETUP ---
         myWebView = (WebView) findViewById(R.id.webview);
         WebSettings webSettings = myWebView.getSettings();
@@ -68,6 +90,7 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setAllowUniversalAccessFromFileURLs(true);
 
         myWebView.setWebViewClient(new WebViewClient());
+        // Assumes WebAppInterface handles the actual saving logic
         myWebView.addJavascriptInterface(new WebAppInterface(this), "Android");
 
         // 1. HANDLE IMPORTS (File Chooser)
