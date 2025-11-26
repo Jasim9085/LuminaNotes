@@ -26,7 +26,6 @@ public class MainActivity extends AppCompatActivity {
 
         myWebView.setWebViewClient(new WebViewClient());
         WebView.setWebContentsDebuggingEnabled(true);
-        myWebView.addJavascriptInterface(new WebAppInterface(this, myWebView), "AndroidBridge");
         myWebView.addJavascriptInterface(new WebAppInterface(this), "Android");
         myWebView.loadUrl("file:///android_asset/index.html");
     }
