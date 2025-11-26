@@ -23,6 +23,8 @@ public class MainActivity extends AppCompatActivity {
     // Variables for File Chooser (Import)
     private ValueCallback<Uri[]> mUploadMessage;
     public static final int FILECHOOSER_RESULTCODE = 1;
+    private static final int PERMISSION_REQUEST_CODE = 1001;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -42,7 +44,12 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
             e.printStackTrace();
         }
-
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, 
+                new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 
+                PERMISSION_REQUEST_CODE);
+        }
         // --- WEBVIEW SETUP ---
         myWebView = (WebView) findViewById(R.id.webview);
         WebSettings webSettings = myWebView.getSettings();
