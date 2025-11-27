@@ -6,13 +6,11 @@ import android.content.pm.PackageManager;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
-import android.os.Build; // Added Import
+import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
-import android.webkit.ConsoleMessage;
-import android.webkit.GeolocationPermissions;
 import android.webkit.DownloadListener;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -20,25 +18,32 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
+
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.core.app.ActivityCompat;
 
+import java.io.OutputStream;
+
 public class MainActivity extends AppCompatActivity {
 
     private WebView myWebView;
-    // Variables for File Chooser (Import)
+
     private ValueCallback<Uri[]> mUploadMessage;
     public static final int FILECHOOSER_RESULTCODE = 1;
     private static final int PERMISSION_REQUEST_CODE = 1001;
 
+    // NEW: Fallback SAF Save
+    private static final int CREATE_FILE_REQUEST_CODE = 2001;
+    private byte[] pendingFileBytes = null;
+    private String pendingFileName = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // --- UI CUSTOMIZATION ---
+        // --- UI CUSTOMIZATION (untouched) ---
         try {
             Window window = getWindow();
             window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
@@ -46,42 +51,39 @@ public class MainActivity extends AppCompatActivity {
             window.setNavigationBarColor(Color.parseColor("#020617"));
             View decorView = window.getDecorView();
             int flags = decorView.getSystemUiVisibility();
-            flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR; 
+            flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
             decorView.setSystemUiVisibility(flags);
         } catch (Exception e) {
             e.printStackTrace();
         }
 
-        // --- PERMISSION REQUEST (Updated) ---
-        // We request Location (for existing features) and Storage (to fix EACCES error)
-        // Note: WRITE_EXTERNAL_STORAGE is critical for Android 9 and below.
+        // --- PERMISSIONS (untouched, even if storage is ignored on 14) ---
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    != PackageManager.PERMISSION_GRANTED || 
-                ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
-                    != PackageManager.PERMISSION_GRANTED) {
-                
-                ActivityCompat.requestPermissions(this, 
-                    new String[]{
-                        Manifest.permission.ACCESS_FINE_LOCATION, 
-                        Manifest.permission.WRITE_EXTERNAL_STORAGE 
-                    }, 
-                    PERMISSION_REQUEST_CODE);
+                    != PackageManager.PERMISSION_GRANTED ||
+                    ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                            != PackageManager.PERMISSION_GRANTED) {
+
+                ActivityCompat.requestPermissions(this,
+                        new String[]{
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.WRITE_EXTERNAL_STORAGE
+                        },
+                        PERMISSION_REQUEST_CODE);
             }
         } else {
-            // For Android 10+, usually MediaStore handles files, but we keep Location
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                     != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, 
-                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 
-                    PERMISSION_REQUEST_CODE);
+                ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
+                        PERMISSION_REQUEST_CODE);
             }
         }
 
-        // --- WEBVIEW SETUP ---
-        myWebView = (WebView) findViewById(R.id.webview);
+        // --- WEBVIEW SETUP (untouched) ---
+        myWebView = findViewById(R.id.webview);
         WebSettings webSettings = myWebView.getSettings();
-        
+
         webSettings.setJavaScriptEnabled(true);
         webSettings.setDomStorageEnabled(true);
         webSettings.setDatabaseEnabled(true);
@@ -90,10 +92,8 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setAllowUniversalAccessFromFileURLs(true);
 
         myWebView.setWebViewClient(new WebViewClient());
-        // Assumes WebAppInterface handles the actual saving logic
         myWebView.addJavascriptInterface(new WebAppInterface(this), "Android");
 
-        // 1. HANDLE IMPORTS (File Chooser)
         myWebView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
@@ -104,8 +104,8 @@ public class MainActivity extends AppCompatActivity {
 
                 Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
-                intent.setType("*/*"); // Allow all file types (for .zip, .md, .html)
-                
+                intent.setType("*/*");
+
                 try {
                     startActivityForResult(Intent.createChooser(intent, "Select File"), FILECHOOSER_RESULTCODE);
                 } catch (Exception e) {
@@ -117,13 +117,12 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // 2. HANDLE EXPORTS (Blob Downloader)
+        // --- DOWNLOAD LISTENER (unchanged, except fallback call) ---
         myWebView.setDownloadListener(new DownloadListener() {
             @Override
             public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
                 if (url.startsWith("blob:")) {
-                    // Inject JS to convert Blob -> Base64 -> Pass to Android Interface
-                    // We surmise the filename from the MIME type or use a default
+
                     String js = "javascript:(function() {" +
                             "  var xhr = new XMLHttpRequest();" +
                             "  xhr.open('GET', '" + url + "', true);" +
@@ -134,13 +133,13 @@ public class MainActivity extends AppCompatActivity {
                             "      var reader = new FileReader();" +
                             "      reader.readAsDataURL(blob);" +
                             "      reader.onloadend = function() {" +
-                            "        var base64data = reader.result;" +
-                            "        Android.saveBlobToDownloads(base64data, 'Lumina_Export.zip');" +
+                            "        Android.saveBlobToDownloads(reader.result, 'Lumina_Export.zip');" +
                             "      }" +
                             "    }" +
                             "  };" +
                             "  xhr.send();" +
                             "})()";
+
                     myWebView.loadUrl(js);
                 }
             }
@@ -150,10 +149,30 @@ public class MainActivity extends AppCompatActivity {
         myWebView.loadUrl("file:///android_asset/index.html");
     }
 
-    // Handle File Chooser Result
+    // ---------------------------------------------------
+    // SAF Fallback: open Save dialog
+    // ---------------------------------------------------
+    public void fallbackSaveUsingSAF(String filename, byte[] bytes) {
+        pendingFileName = filename;
+        pendingFileBytes = bytes;
+
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_TITLE, filename);
+
+        startActivityForResult(intent, CREATE_FILE_REQUEST_CODE);
+    }
+
+    // ---------------------------------------------------
+    // Activity Result
+    // ---------------------------------------------------
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
         super.onActivityResult(requestCode, resultCode, intent);
+
+        // FILE PICKER FOR IMPORT (unchanged)
         if (requestCode == FILECHOOSER_RESULTCODE) {
             if (mUploadMessage == null) return;
             Uri[] results = null;
@@ -167,10 +186,29 @@ public class MainActivity extends AppCompatActivity {
             }
             mUploadMessage.onReceiveValue(results);
             mUploadMessage = null;
+            return;
+        }
+
+        // NEW: SAF RESULT HANDLER
+        if (requestCode == CREATE_FILE_REQUEST_CODE && resultCode == Activity.RESULT_OK) {
+            if (intent != null && pendingFileBytes != null) {
+                Uri uri = intent.getData();
+                try {
+                    OutputStream os = getContentResolver().openOutputStream(uri);
+                    if (os != null) {
+                        os.write(pendingFileBytes);
+                        os.close();
+                        Toast.makeText(this, "File saved successfully", Toast.LENGTH_SHORT).show();
+                    }
+                } catch (Exception e) {
+                    Toast.makeText(this, "Failed to save file", Toast.LENGTH_LONG).show();
+                }
+            }
+            pendingFileBytes = null;
+            pendingFileName = null;
         }
     }
-    
-    // Handle Back Button to navigate WebView history instead of closing app
+
     @Override
     public void onBackPressed() {
         if (myWebView.canGoBack()) {
