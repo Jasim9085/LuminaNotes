@@ -33,7 +33,7 @@ public class MainActivity extends AppCompatActivity {
     public static final int FILECHOOSER_RESULTCODE = 1;
     private static final int PERMISSION_REQUEST_CODE = 1001;
 
-    // NEW: Fallback SAF Save
+    // SAF fallback
     private static final int CREATE_FILE_REQUEST_CODE = 2001;
     private byte[] pendingFileBytes = null;
     private String pendingFileName = null;
@@ -43,7 +43,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // --- UI CUSTOMIZATION (untouched) ---
+        // Status/navigation bar colors
         try {
             Window window = getWindow();
             window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
@@ -57,12 +57,12 @@ public class MainActivity extends AppCompatActivity {
             e.printStackTrace();
         }
 
-        // --- PERMISSIONS (untouched, even if storage is ignored on 14) ---
+        // Permissions
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
                     != PackageManager.PERMISSION_GRANTED ||
-                    ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-                            != PackageManager.PERMISSION_GRANTED) {
+                ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                    != PackageManager.PERMISSION_GRANTED) {
 
                 ActivityCompat.requestPermissions(this,
                         new String[]{
@@ -80,7 +80,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        // --- WEBVIEW SETUP (untouched) ---
+        // WebView Setup
         myWebView = findViewById(R.id.webview);
         WebSettings webSettings = myWebView.getSettings();
 
@@ -96,10 +96,11 @@ public class MainActivity extends AppCompatActivity {
 
         myWebView.setWebChromeClient(new WebChromeClient() {
             @Override
-            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
-                if (mUploadMessage != null) {
-                    mUploadMessage.onReceiveValue(null);
-                }
+            public boolean onShowFileChooser(WebView webView,
+                                             ValueCallback<Uri[]> filePathCallback,
+                                             FileChooserParams fileChooserParams) {
+
+                if (mUploadMessage != null) mUploadMessage.onReceiveValue(null);
                 mUploadMessage = filePathCallback;
 
                 Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
@@ -107,7 +108,8 @@ public class MainActivity extends AppCompatActivity {
                 intent.setType("*/*");
 
                 try {
-                    startActivityForResult(Intent.createChooser(intent, "Select File"), FILECHOOSER_RESULTCODE);
+                    startActivityForResult(Intent.createChooser(intent, "Select File"),
+                            FILECHOOSER_RESULTCODE);
                 } catch (Exception e) {
                     mUploadMessage = null;
                     Toast.makeText(MainActivity.this, "Cannot open file picker", Toast.LENGTH_LONG).show();
@@ -117,28 +119,30 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // --- DOWNLOAD LISTENER (unchanged, except fallback call) ---
+        // Handle blob downloads
         myWebView.setDownloadListener(new DownloadListener() {
             @Override
-            public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
-                if (url.startsWith("blob:")) {
+            public void onDownloadStart(String url, String userAgent,
+                                        String contentDisposition, String mimetype, long contentLength) {
 
-                    String js = "javascript:(function() {" +
-                            "  var xhr = new XMLHttpRequest();" +
-                            "  xhr.open('GET', '" + url + "', true);" +
-                            "  xhr.responseType = 'blob';" +
-                            "  xhr.onload = function() {" +
-                            "    if (this.status == 200) {" +
-                            "      var blob = this.response;" +
-                            "      var reader = new FileReader();" +
-                            "      reader.readAsDataURL(blob);" +
-                            "      reader.onloadend = function() {" +
-                            "        Android.saveBlobToDownloads(reader.result, 'Lumina_Export.zip');" +
-                            "      }" +
-                            "    }" +
-                            "  };" +
-                            "  xhr.send();" +
-                            "})()";
+                if (url.startsWith("blob:")) {
+                    String js =
+                            "javascript:(function() {" +
+                                    "var xhr = new XMLHttpRequest();" +
+                                    "xhr.open('GET', '" + url + "', true);" +
+                                    "xhr.responseType = 'blob';" +
+                                    "xhr.onload = function() {" +
+                                    " if (this.status == 200) {" +
+                                    "   var blob = this.response;" +
+                                    "   var reader = new FileReader();" +
+                                    "   reader.readAsDataURL(blob);" +
+                                    "   reader.onloadend = function() {" +
+                                    "     Android.saveBlobToDownloads(reader.result, 'Lumina_Export.zip');" +
+                                    "   }" +
+                                    " }" +
+                                    "};" +
+                                    "xhr.send();" +
+                                    "})()";
 
                     myWebView.loadUrl(js);
                 }
@@ -149,9 +153,7 @@ public class MainActivity extends AppCompatActivity {
         myWebView.loadUrl("file:///android_asset/index.html");
     }
 
-    // ---------------------------------------------------
-    // SAF Fallback: open Save dialog
-    // ---------------------------------------------------
+    // SAF fallback method
     public void fallbackSaveUsingSAF(String filename, byte[] bytes) {
         pendingFileName = filename;
         pendingFileBytes = bytes;
@@ -164,35 +166,27 @@ public class MainActivity extends AppCompatActivity {
         startActivityForResult(intent, CREATE_FILE_REQUEST_CODE);
     }
 
-    // ---------------------------------------------------
-    // Activity Result
-    // ---------------------------------------------------
-
+    // Activity Results
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
         super.onActivityResult(requestCode, resultCode, intent);
 
-        if (requestCode == 2001 && resultCode == RESULT_OK) {
-            ((WebAppInterface) myWebView.getJavascriptInterface("Android")).completeFallbackSave(intent.getData());
-        }
-        // FILE PICKER FOR IMPORT (unchanged)
+        // File chooser
         if (requestCode == FILECHOOSER_RESULTCODE) {
             if (mUploadMessage == null) return;
             Uri[] results = null;
-            if (resultCode == Activity.RESULT_OK) {
-                if (intent != null) {
-                    String dataString = intent.getDataString();
-                    if (dataString != null) {
-                        results = new Uri[]{Uri.parse(dataString)};
-                    }
-                }
+
+            if (resultCode == Activity.RESULT_OK && intent != null) {
+                String dataString = intent.getDataString();
+                if (dataString != null) results = new Uri[]{Uri.parse(dataString)};
             }
+
             mUploadMessage.onReceiveValue(results);
             mUploadMessage = null;
             return;
         }
 
-        // NEW: SAF RESULT HANDLER
+        // SAF Create Document
         if (requestCode == CREATE_FILE_REQUEST_CODE && resultCode == Activity.RESULT_OK) {
             if (intent != null && pendingFileBytes != null) {
                 Uri uri = intent.getData();
@@ -207,6 +201,7 @@ public class MainActivity extends AppCompatActivity {
                     Toast.makeText(this, "Failed to save file", Toast.LENGTH_LONG).show();
                 }
             }
+
             pendingFileBytes = null;
             pendingFileName = null;
         }
