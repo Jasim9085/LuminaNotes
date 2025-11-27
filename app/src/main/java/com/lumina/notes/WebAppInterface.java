@@ -1,17 +1,22 @@
 package com.lumina.notes;
 
 import android.content.Context;
+import android.content.Intent;   // NEW
+import android.net.Uri;         // NEW
 import android.os.Environment;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
 import android.widget.Toast;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.OutputStream;     // NEW
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+
 import org.json.JSONArray;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -19,11 +24,15 @@ import java.util.Date;
 public class WebAppInterface {
     private Context mContext;
 
+    // Fallback buffer (NEW)
+    private byte[] pendingData = null;
+    private String pendingFilename = null;
+
     public WebAppInterface(Context c) {
         mContext = c;
     }
 
-    // --- EXISTING METHODS (Private Storage) ---
+    // ---------- EXISTING METHODS (unchanged) ----------
 
     private File getFile(String path) {
         if (path.contains("..")) return null;
@@ -85,32 +94,76 @@ public class WebAppInterface {
         if (folder != null && !folder.exists()) folder.mkdirs();
     }
 
-    // --- NEW METHOD FOR EXPORTING (Public Downloads) ---
+    // ---------- NEW: Helper to detect Android 10+ restrictions ----------
+
+    private boolean canWriteDownloads() {
+        // Android 10+ disallows direct write to public folders
+        return android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q;
+    }
+
+    // ---------- NEW: SAF fallback -------------
+
+    private void fallbackSave(String filename, byte[] data) {
+        pendingFilename = filename;
+        pendingData = data;
+
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_TITLE, filename);
+
+        // MainActivity will receive result
+        ((MainActivity) mContext).startActivityForResult(intent, 2001);
+    }
+
+    // Called from MainActivity.onActivityResult
+    public void completeFallbackSave(Uri uri) {
+        if (uri == null || pendingData == null) return;
+
+        try {
+            OutputStream os = mContext.getContentResolver().openOutputStream(uri);
+            os.write(pendingData);
+            os.close();
+            Toast.makeText(mContext, "Saved successfully", Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(mContext, "Failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+
+        pendingData = null;
+        pendingFilename = null;
+    }
+
+    // ---------- UPDATED: Export Method with Fallback ----------
 
     @JavascriptInterface
     public void saveBlobToDownloads(String base64Data, String filename) {
         try {
-            // Decode Base64
-            byte[] fileData = Base64.decode(base64Data.replaceFirst("^data:.*?,", ""), Base64.DEFAULT);
-            
-            // Create path in Downloads folder
-            File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-            
-            // Ensure filename is unique or formatted
+            byte[] fileData = Base64.decode(
+                    base64Data.replaceFirst("^data:.*?,", ""),
+                    Base64.DEFAULT
+            );
+
             if (filename == null || filename.isEmpty()) {
                 String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
                 filename = "Lumina_Export_" + timeStamp + ".zip";
             }
-            
+
+            // --- NEW: If Android 10+ → use SAF automatically ---
+            if (!canWriteDownloads()) {
+                fallbackSave(filename, fileData);
+                return;
+            }
+
+            // --- EXISTING METHOD (unchanged) ---
+            File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
             File file = new File(downloadsDir, filename);
-            
-            // Write file
+
             FileOutputStream fos = new FileOutputStream(file);
             fos.write(fileData);
             fos.close();
-            
+
             Toast.makeText(mContext, "Saved to Downloads: " + filename, Toast.LENGTH_LONG).show();
-            
+
         } catch (Exception e) {
             e.printStackTrace();
             Toast.makeText(mContext, "Export Failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
