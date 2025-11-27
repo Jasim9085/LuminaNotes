@@ -172,6 +172,9 @@ public class MainActivity extends AppCompatActivity {
     protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
         super.onActivityResult(requestCode, resultCode, intent);
 
+        if (requestCode == 2001 && resultCode == RESULT_OK) {
+            ((WebAppInterface) myWebView.getJavascriptInterface("Android")).completeFallbackSave(intent.getData());
+        }
         // FILE PICKER FOR IMPORT (unchanged)
         if (requestCode == FILECHOOSER_RESULTCODE) {
             if (mUploadMessage == null) return;
